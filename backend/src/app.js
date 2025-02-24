@@ -6,6 +6,7 @@ const authRoutes = require('./routes/authRoutes');
 const verbaRoutes = require('./routes/verbaRoutes');
 const saldoRoutes = require('./routes/saldoRoutes');
 const lancamentoRoutes = require('./routes/lancamentoRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/verbas', verbaRoutes);
 app.use('/api/saldos', saldoRoutes);
 app.use('/api/lancamentos', lancamentoRoutes);
+app.use('/api/usuarios', userRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'API Controle de Gastos' });
