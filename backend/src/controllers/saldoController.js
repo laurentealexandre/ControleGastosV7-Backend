@@ -5,6 +5,52 @@ const saldoController = {
     // Obter saldo atual de todas as categorias
     getSaldoGeral: async (req, res) => {
         try {
+            const { ano, mes, dataInicio, dataFim } = req.query;
+            
+            // Define valores padrão se não forem fornecidos
+            const anoAtual = ano || new Date().getFullYear();
+            const mesAtual = mes || new Date().getMonth() + 1;
+            
+            // Constrói a parte de filtro das consultas SQL com base nos parâmetros
+            let filtroData = '';
+            
+            // Se dataInicio e dataFim forem fornecidos, usa intervalo de datas
+            if (dataInicio && dataFim) {
+                filtroData = `WHERE data BETWEEN '${dataInicio}' AND '${dataFim}'`;
+            } 
+            // Se só dataInicio for fornecido
+            else if (dataInicio) {
+                filtroData = `WHERE data >= '${dataInicio}'`;
+            }
+            // Se só dataFim for fornecido
+            else if (dataFim) {
+                filtroData = `WHERE data <= '${dataFim}'`;
+            }
+            // Caso contrário, usa ano e mês
+            else {
+                filtroData = `WHERE YEAR(data) = ${anoAtual}`;
+                
+                // Adiciona mês ao filtro se for fornecido
+                if (mes) {
+                    filtroData += ` AND MONTH(data) = ${mesAtual}`;
+                }
+            }
+            
+            // Caso especial para tabela de parque gráfico que usa campo 'mes' em vez de 'data'
+            let filtroPG = '';
+            if (dataInicio && dataFim) {
+                filtroPG = `WHERE mes BETWEEN '${dataInicio}' AND '${dataFim}'`;
+            } else if (dataInicio) {
+                filtroPG = `WHERE mes >= '${dataInicio}'`;
+            } else if (dataFim) {
+                filtroPG = `WHERE mes <= '${dataFim}'`;
+            } else {
+                filtroPG = `WHERE YEAR(mes) = ${anoAtual}`;
+                if (mes) {
+                    filtroPG += ` AND MONTH(mes) = ${mesAtual}`;
+                }
+            }
+
             const [saldos] = await pool.query(`
                 SELECT 
                     c.id as categoria_id,
@@ -12,22 +58,22 @@ const saldoController = {
                     v.valor_total as verba_total,
                     COALESCE(
                         CASE c.nome
-                            WHEN 'Abastecimento' THEN (SELECT SUM(valor) FROM lancamentos_abastecimento WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Correios' THEN (SELECT SUM(valor) FROM lancamentos_correios WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Diárias' THEN (SELECT SUM(valor) FROM lancamentos_diarias WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Material Permanente' THEN (SELECT SUM(valor) FROM lancamentos_material_permanente WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Manutenção de Veículos' THEN (SELECT SUM(valor) FROM lancamentos_manutencao_veiculos WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Material de Consumo' THEN (SELECT SUM(valor) FROM lancamentos_material_consumo WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Almoxarifado' THEN (SELECT SUM(valor) FROM lancamentos_almoxarifado WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Parque Gráfico' THEN (SELECT SUM(valor) FROM lancamentos_parque_grafico WHERE YEAR(mes) = v.ano AND MONTH(mes) = v.mes)
-                            WHEN 'Passagens' THEN (SELECT SUM(valor) FROM lancamentos_passagens WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Manutenção Predial' THEN (SELECT SUM(valor) FROM lancamentos_manutencao_predial WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
-                            WHEN 'Transportes' THEN (SELECT SUM(valor) FROM lancamentos_transportes WHERE YEAR(data) = v.ano AND MONTH(data) = v.mes)
+                            WHEN 'Abastecimento' THEN (SELECT SUM(valor) FROM lancamentos_abastecimento ${filtroData})
+                            WHEN 'Correios' THEN (SELECT SUM(valor) FROM lancamentos_correios ${filtroData})
+                            WHEN 'Diárias' THEN (SELECT SUM(valor) FROM lancamentos_diarias ${filtroData})
+                            WHEN 'Material Permanente' THEN (SELECT SUM(valor) FROM lancamentos_material_permanente ${filtroData})
+                            WHEN 'Manutenção de Veículos' THEN (SELECT SUM(valor) FROM lancamentos_manutencao_veiculos ${filtroData})
+                            WHEN 'Material de Consumo' THEN (SELECT SUM(valor) FROM lancamentos_material_consumo ${filtroData})
+                            WHEN 'Almoxarifado' THEN (SELECT SUM(valor) FROM lancamentos_almoxarifado ${filtroData})
+                            WHEN 'Parque Gráfico' THEN (SELECT SUM(valor) FROM lancamentos_parque_grafico ${filtroPG})
+                            WHEN 'Passagens' THEN (SELECT SUM(valor) FROM lancamentos_passagens ${filtroData})
+                            WHEN 'Manutenção Predial' THEN (SELECT SUM(valor) FROM lancamentos_manutencao_predial ${filtroData})
+                            WHEN 'Transportes' THEN (SELECT SUM(valor) FROM lancamentos_transportes ${filtroData})
                         END, 0
                     ) as total_gasto
                 FROM verbas v
                 JOIN categorias c ON v.categoria_id = c.id
-                WHERE v.ano = YEAR(CURRENT_DATE()) AND v.mes = MONTH(CURRENT_DATE())
+                WHERE v.ano = ${anoAtual} ${mes ? `AND v.mes = ${mesAtual}` : ''}
             `);
 
             const saldosProcessados = saldos.map(saldo => ({
@@ -47,31 +93,81 @@ const saldoController = {
     getSaldoCategoria: async (req, res) => {
         try {
             const { categoria_id } = req.params;
-            const { ano, mes } = req.query;
+            const { ano, mes, dataInicio, dataFim } = req.query;
+            
+            // Define valores padrão se não forem fornecidos
+            const anoConsulta = ano || new Date().getFullYear();
+            const mesConsulta = mes || new Date().getMonth() + 1;
+            
+            // Parâmetros para a consulta
+            const params = [categoria_id, anoConsulta];
+            if (mes) params.push(mesConsulta);
+            
+            // Constrói a parte de filtro das consultas SQL
+            let filtroData = '';
+            
+            // Se dataInicio e dataFim forem fornecidos, usa intervalo de datas
+            if (dataInicio && dataFim) {
+                filtroData = `WHERE data BETWEEN '${dataInicio}' AND '${dataFim}'`;
+            } 
+            // Se só dataInicio for fornecido
+            else if (dataInicio) {
+                filtroData = `WHERE data >= '${dataInicio}'`;
+            }
+            // Se só dataFim for fornecido
+            else if (dataFim) {
+                filtroData = `WHERE data <= '${dataFim}'`;
+            }
+            // Caso contrário, usa ano e mês
+            else {
+                filtroData = `WHERE YEAR(data) = ${anoConsulta}`;
+                
+                // Adiciona mês ao filtro se for fornecido
+                if (mes) {
+                    filtroData += ` AND MONTH(data) = ${mesConsulta}`;
+                }
+            }
+            
+            // Caso especial para tabela de parque gráfico que usa campo 'mes' em vez de 'data'
+            let filtroPG = '';
+            if (dataInicio && dataFim) {
+                filtroPG = `WHERE mes BETWEEN '${dataInicio}' AND '${dataFim}'`;
+            } else if (dataInicio) {
+                filtroPG = `WHERE mes >= '${dataInicio}'`;
+            } else if (dataFim) {
+                filtroPG = `WHERE mes <= '${dataFim}'`;
+            } else {
+                filtroPG = `WHERE YEAR(mes) = ${anoConsulta}`;
+                if (mes) {
+                    filtroPG += ` AND MONTH(mes) = ${mesConsulta}`;
+                }
+            }
 
             const [saldos] = await pool.query(`
                 SELECT 
                     c.nome as categoria,
-                    v.valor_total as verba_total,
+                    CASE
+                        WHEN ${!mes} THEN (SELECT SUM(valor_total) FROM verbas WHERE categoria_id = ? AND ano = ?)
+                        ELSE (SELECT valor_total FROM verbas WHERE categoria_id = ? AND ano = ? AND mes = ?)
+                    END as verba_total,
                     COALESCE(
                         CASE c.nome
-                            WHEN 'Abastecimento' THEN (SELECT SUM(valor) FROM lancamentos_abastecimento WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Correios' THEN (SELECT SUM(valor) FROM lancamentos_correios WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Diárias' THEN (SELECT SUM(valor) FROM lancamentos_diarias WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Material Permanente' THEN (SELECT SUM(valor) FROM lancamentos_material_permanente WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Manutenção de Veículos' THEN (SELECT SUM(valor) FROM lancamentos_manutencao_veiculos WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Material de Consumo' THEN (SELECT SUM(valor) FROM lancamentos_material_consumo WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Almoxarifado' THEN (SELECT SUM(valor) FROM lancamentos_almoxarifado WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Parque Gráfico' THEN (SELECT SUM(valor) FROM lancamentos_parque_grafico WHERE YEAR(mes) = ? AND MONTH(mes) = ?)
-                            WHEN 'Passagens' THEN (SELECT SUM(valor) FROM lancamentos_passagens WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Manutenção Predial' THEN (SELECT SUM(valor) FROM lancamentos_manutencao_predial WHERE YEAR(data) = ? AND MONTH(data) = ?)
-                            WHEN 'Transportes' THEN (SELECT SUM(valor) FROM lancamentos_transportes WHERE YEAR(data) = ? AND MONTH(data) = ?)
+                            WHEN 'Abastecimento' THEN (SELECT SUM(valor) FROM lancamentos_abastecimento ${filtroData})
+                            WHEN 'Correios' THEN (SELECT SUM(valor) FROM lancamentos_correios ${filtroData})
+                            WHEN 'Diárias' THEN (SELECT SUM(valor) FROM lancamentos_diarias ${filtroData})
+                            WHEN 'Material Permanente' THEN (SELECT SUM(valor) FROM lancamentos_material_permanente ${filtroData})
+                            WHEN 'Manutenção de Veículos' THEN (SELECT SUM(valor) FROM lancamentos_manutencao_veiculos ${filtroData})
+                            WHEN 'Material de Consumo' THEN (SELECT SUM(valor) FROM lancamentos_material_consumo ${filtroData})
+                            WHEN 'Almoxarifado' THEN (SELECT SUM(valor) FROM lancamentos_almoxarifado ${filtroData})
+                            WHEN 'Parque Gráfico' THEN (SELECT SUM(valor) FROM lancamentos_parque_grafico ${filtroPG})
+                            WHEN 'Passagens' THEN (SELECT SUM(valor) FROM lancamentos_passagens ${filtroData})
+                            WHEN 'Manutenção Predial' THEN (SELECT SUM(valor) FROM lancamentos_manutencao_predial ${filtroData})
+                            WHEN 'Transportes' THEN (SELECT SUM(valor) FROM lancamentos_transportes ${filtroData})
                         END, 0
                     ) as total_gasto
-                FROM verbas v
-                JOIN categorias c ON v.categoria_id = c.id
-                WHERE v.categoria_id = ? AND v.ano = ? AND v.mes = ?
-            `, [ano, mes, ano, mes, ano, mes, ano, mes, ano, mes, ano, mes, ano, mes, ano, mes, ano, mes, ano, mes, ano, mes, categoria_id, ano, mes]);
+                FROM categorias c
+                WHERE c.id = ?
+            `, mes ? [categoria_id, anoConsulta, categoria_id, anoConsulta, mesConsulta, categoria_id] : [categoria_id, anoConsulta, categoria_id]);
 
             if (saldos.length === 0) {
                 return res.status(404).json({ message: 'Saldo não encontrado para esta categoria/período' });

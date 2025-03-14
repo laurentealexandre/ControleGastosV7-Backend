@@ -34,7 +34,7 @@ const lancamentoController = {
     // Listar lançamentos de abastecimento
     getAbastecimento: async (req, res) => {
         try {
-            const { ano, mes } = req.query;
+            const { ano, mes, dataInicio, dataFim } = req.query;
             let query = `
                 SELECT 
                     l.*,
@@ -43,10 +43,37 @@ const lancamentoController = {
                 LEFT JOIN usuarios u ON l.usuario_criacao = u.id
             `;
             let params = [];
+            let whereAdded = false;
 
-            if (ano && mes) {
+            // Filtro por período (dataInicio e dataFim)
+            if (dataInicio && dataFim) {
+                query += ' WHERE l.data BETWEEN ? AND ?';
+                params = [dataInicio, dataFim];
+                whereAdded = true;
+            } 
+            // Filtro apenas por dataInicio
+            else if (dataInicio) {
+                query += ' WHERE l.data >= ?';
+                params = [dataInicio];
+                whereAdded = true;
+            } 
+            // Filtro apenas por dataFim
+            else if (dataFim) {
+                query += ' WHERE l.data <= ?';
+                params = [dataFim];
+                whereAdded = true;
+            } 
+            // Manter compatibilidade com o filtro existente por ano e mês
+            else if (ano && mes) {
                 query += ' WHERE YEAR(l.data) = ? AND MONTH(l.data) = ?';
                 params = [ano, mes];
+                whereAdded = true;
+            }
+            // Filtro apenas por ano (todos os meses do ano)
+            else if (ano) {
+                query += ' WHERE YEAR(l.data) = ?';
+                params = [ano];
+                whereAdded = true;
             }
 
             query += ' ORDER BY l.data DESC';
